@@ -1,41 +1,31 @@
 # SN11 — Fine-tune Subnet: Evaluation System
 
 How the subnet runs a competition: miners submit a **(harness, model)** pair, it is
-screened, fully evaluated against a private benchmark, and the winner earns emission for
-the next cycle. At the end of each lifecycle **the models are published; the benchmark and
-harness contents are not** (§9).
+screened, fully evaluated against a held-out benchmark, and the winner earns emission for
+the next cycle. At the end of each lifecycle **the winning model and all submissions' skills
+are published; the rest of the harness stays private. Whether the benchmark is public or
+private is still open** — a client-discussion item (§8, §9).
 
 This document is the spec for the **eval system**. The harness miners extend lives in
 [base_harness/](base_harness/) (see [base_harness/README.md](base_harness/README.md)).
 
 **Role guides:** [miner.md](miner.md) (how to compete) · [validator.md](validator.md) (how to
-evaluate) · [security-and-incentives.md](security-and-incentives.md) (rules, audit, incentives).
+evaluate — incl. the integrity audit & verifier controls).
 
 ---
 
 ## 1. Goals
 
 - Reward the **best agent** — model *and* scaffold together, not one in isolation.
-- Make the subnet a **ratchet**: each cycle the **winning model is published** and becomes the
-  public frontier the next cycle must beat. The benchmark stays **private** so it can't be
-  memorized.
+- Make the subnet a **double ratchet**: each cycle the **winning model** *and* **all submissions'
+  skills** are published and become the public frontier the next cycle must beat. The rest of the
+  harness (tools, prompt builder, compaction, base prompt) stays a **private moat**.
 - Keep evaluation **cheap to gate** (screening) and **honest to score** (verifier in the
-  same container, no network at verify time, private tasks).
+  same container, no network at verify time, held-out tasks).
 
 ---
 
-## 2. Actors
-
-| Actor | Role |
-|---|---|
-| **Miner** | Fine-tunes Qwen3.6-35B-A3B and extends the base harness (tools / skills / compaction / system prompt). Submits a `(harness, model)` pair. |
-| **Validator / Evaluator** | Serves each miner's model on a dedicated GPU, runs the harness in Docker per task, then runs the verifier. Produces a score. |
-| **Verifier** | Trusted, pinned checker injected into the agent's container *after* the agent finishes. Returns a graded `[0,1]` score per task. |
-| **Chain** | Holds commit-reveal submissions, records scores, sets weights → emission. |
-
----
-
-## 3. What a submission is
+## 2. What a submission is
 
 A submission is a **pinned pair**:
 
@@ -58,7 +48,7 @@ so competitors cannot copy the live leader mid-cycle. Reveal happens when the wi
 
 ---
 
-## 4. Lifecycle & timeline
+## 3. Lifecycle & timeline
 
 A lifecycle is **2 weeks**. The winner of each lifecycle earns emission **during the next
 one** — a continuous relay.
@@ -75,11 +65,12 @@ one** — a continuous relay.
                                                                                │
    Emission earner DURING lifecycle N = winner of lifecycle N-1                │
                                                                                ▼
-                              End of N: PUBLISH models only (harness + benchmark stay PRIVATE)
+           End of N: PUBLISH winning model + ALL skills (tools/prompt/compaction/base prompt stay
+                     PRIVATE; benchmark public-vs-private is TBD — §9)
                                                                                │
                                                                                ▼
-  Lifecycle N+1 begins ── scored on a PRIVATE held-out pool (reused, leak-guarded); the
-                          published winner model is the public frontier to beat (by ε).
+  Lifecycle N+1 begins ── scored on a held-out pool; the published winner model + skill commons
+                          are the public frontier to beat (by ε).
 ```
 
 Key timing rules:
@@ -89,12 +80,13 @@ Key timing rules:
   is empty (may spill into week 2). FIFO — **earliest submission evaluated first**.
 - **Winner selection:** once the queue is empty and all scores are in.
 - **Emission:** the selected winner earns subnet emission for the **whole next lifecycle**.
-- **Publication:** at the end of the lifecycle, **the models are released**. The **harness
-  contents** and the **benchmark dataset** are **not** (§9).
+- **Publication:** at the end of the lifecycle, **the winning model and all submissions' skills
+  are released**. The rest of the **harness** (tools, prompt builder, compaction, base prompt) is
+  **not**; the **benchmark**'s public/private status is **TBD** (§8, §9).
 
 ---
 
-## 5. Stage 1 — Screening (cheap gate)
+## 4. Stage 1 — Screening (cheap gate)
 
 Every revealed submission first runs against **5–10 screening tasks** before it is allowed
 to consume full-eval compute.
@@ -102,14 +94,14 @@ to consume full-eval compute.
 - **Purpose:** reject broken or spam submissions cheaply — model won't load, harness
   crashes, emits invalid tool calls every turn, or fails everything trivially.
 - **Pass criteria:** must (a) serve and run end-to-end without crashing, and (b) solve at
-  least a minimum fraction of the screening tasks (threshold TBD — see §10).
+  least a minimum fraction of the screening tasks (exact threshold TBD).
 - **Screening tasks are disjoint from the full benchmark** so screening never leaks the
   scored set.
 - Only submissions that pass screening enter the full-eval queue.
 
 ---
 
-## 6. Stage 2 — Full evaluation (benchmark dataset)
+## 5. Stage 2 — Full evaluation (benchmark dataset)
 
 Passing submissions are evaluated on the full benchmark (**50+ tasks**).
 
@@ -131,7 +123,7 @@ The harness exports the full session (messages, tool log, usage) for audit — t
 
 ---
 
-## 7. Scoring & winner selection
+## 6. Scoring & winner selection
 
 Scoring is **graded and capability-only** — no cost/turns/latency term in this phase. We just
 want the model+harness that **solves the problems**.
@@ -140,19 +132,19 @@ want the model+harness that **solves the problems**.
   **averaged over `k` trials** to remove sampling noise (binary tasks = `{0,1}`).
 - **Submission score** `S = mean(s_t)` over the benchmark (optionally **domain-weighted** so
   one easy cluster can't dominate). `S ∈ [0,1]`.
-- **Winner:** highest `S`, subject to two anti-copy rules (§10):
+- **Winner:** highest `S`, subject to two anti-copy rules:
   - **Improvement margin (ε):** to dethrone the standing public best you must beat it by
     ≥ ε, not merely tie it.
   - **Earliest-wins tie-break:** equal scores resolve to the earliest submission (FIFO
     already orders eval; this makes copying strictly unprofitable).
 
 Emission is **winner-take-all**: the single highest-`S` eligible submission earns the subnet's
-emission for the next cycle (see §10). The integrity audit (security doc) sits on top: `S` is
-credited only after the ablation gate + lift-test confirm the *model* produced it.
+emission for the next cycle. The integrity audit ([validator.md](validator.md) §3)
+sits on top: `S` is credited only after the ablation gate + lift-test confirm the *model* produced it.
 
 ---
 
-## 8. Emission
+## 7. Emission
 
 The selected winner receives the subnet's emission for the **entire next 2-week
 lifecycle** while the next competition runs. Mechanically: validators set weights toward
@@ -160,56 +152,93 @@ the winning UID; that weighting persists until the next lifecycle's winner is ch
 
 ---
 
-## 9. Publication policy & the convergence ratchet
+## 8. Publication policy & the convergence ratchet
 
-**Decision:** at the end of each lifecycle **the models are published; the benchmark and the
-harness contents are NOT.** Three things, three roles:
+**Decision:** at the end of each lifecycle **the winning model and every submission's skills are
+published; the rest of the harness is NOT.** The benchmark's public/private status is still
+**open** (client-discussion — §9). Four things, four roles:
 
-- **Models → published.** The winner's model becomes the **public frontier** every cycle. With
-  the **ε-margin + earliest-wins**, copying the model can't win — you must *beat* the public
-  model. Distilling from / fine-tuning on the published model is the intended ratchet: the
-  subnet's product is an ever-improving open model.
-- **Harness → private.** Each miner's scaffold (tools/skills/prompt/compaction) is competitive
-  IP — never published, so it can't be copied. (Validators still *audit* it privately at eval
-  time — the integrity audit in [security-and-incentives.md](security-and-incentives.md).)
-- **Benchmark → private (reused).** Tasks never go public, so there is no memorization-from-
-  public risk and a held-out pool can be **reused** across cycles (lower cost). The trade is a
-  **validator-leak risk** — a validator who sees the tasks could pass them to a miner —
-  mitigated by canaries (leak tripwires), per-validator partitions, stake/slashing, and pool
-  rotation (security doc G1).
+- **Winning model → published.** It becomes the **public frontier** every cycle. With the
+  **ε-margin + earliest-wins**, copying the model can't win — you must *beat* the public model.
+  Distilling from / fine-tuning on the published model is the intended ratchet: the subnet's
+  product is an ever-improving open model.
+- **All skills → published.** Every submission's `SKILL.md` skills become a **public skill
+  commons** each cycle (not just the winner's). Skills are **behavior-only** — methodology, not
+  answers (§9) — so sharing them is low-risk and creates a *second* public ratchet: the
+  community's agent behavior improves in the open. (They're still audited at eval time —
+  [validator.md](validator.md) §3.)
+- **Rest of the harness → private.** Tools (`tools/`), the prompt builder (`prompt.py`),
+  compaction (`compaction.py`), and the base system prompt (`skills/system.md`) are competitive
+  IP — never published. The moat is now the **model + these private surfaces**.
+- **Benchmark → TBD (public vs private).** *Not yet decided — see §9.* If **private/reused**:
+  lower cost, but a **validator-leak risk** (a validator who sees the tasks could pass them to a
+  miner) mitigated by canaries, per-validator partitions, stake/slashing, and pool rotation
+  ([validator.md](validator.md) §6). If **public/fresh**: no leak risk and a public benchmark, but
+  a continuous task-generation cost (§9 #2).
 
-Net: the **model frontier ratchets up publicly** (publish + ε-margin), while the **harness stays
-a private moat** and the **benchmark stays unmemorizable** (private + reused, leak-guarded).
+Net: **two public ratchets** — the **model frontier** (publish winner + ε-margin) and the **skill
+commons** (publish all skills) — over a **private scaffold moat** (tools + prompt builder +
+compaction + base prompt). The benchmark's secrecy is the remaining open lever.
 
 ---
 
-## 10. Anti-gaming mechanics & open decisions
+## 9. Discussion points (for client review)
 
-> Full threat model + the gaps that need decisions: **[security-and-incentives.md](security-and-incentives.md)**.
+Open questions still under discussion, with our **current position** on each.
 
-Baked-in:
+### 1. Dataset preparation — *how do we build the task pool?*
+**Current position:** start by **filtering SWE-bench and Terminal-Bench** and **sampling the
+DevOps-flavored tasks** as the seed benchmark (then decontaminate; extend with generated tasks
+later). This gives a credible, recognizable base quickly.
 
-- **Commit-reveal** during the submission window — no copying the live leader.
-- **Earliest-wins / FIFO** eval order and tie-break — copying is strictly unprofitable.
-- **ε improvement margin** over the standing best — ties/marginal copies don't dethrone.
-- **Private, reused benchmark** — drawn from a decontaminated, canary-tagged pool; **never
-  published** (leak-guarded — see the security doc).
-- **Verifier in-container, trusted/pinned, no network at verify** — agent's environment
-  fixes count, but the checker can't be tampered with.
-- **Screening gate** — protects full-eval compute from broken/spam submissions.
+### 2. Benchmark — public or private? *(undecided — needs the client's call)*
+The harness side is settled (model + all skills public; rest private — §8), but the **benchmark
+itself is not**. The two branches:
+- **Private / reused** — cheaper (reuse a held-out pool across cycles), but validators *see* the
+  tasks, so it carries a **validator-leak risk** and needs the full leak-control kit (canaries,
+  per-validator partitions, stake/slashing, rotation — [validator.md](validator.md) §6).
+- **Public / fresh** — publish each cycle's tasks after scoring and generate a new set next cycle.
+  **No leak risk** and yields a public benchmark, but requires a **continuous task-generation
+  pipeline** (the biggest recurring cost).
 
-Open decisions to lock down:
+This couples to item 3 below: a private benchmark makes determinism safe (tasks stay unseen); a
+public one re-introduces overfit risk unless tasks are *always* freshly generated. **Decision
+deferred to the client.**
 
-1. **Screening threshold** — pass = "runs + solves ≥ k of 5–10"? exact k?
-2. **Benchmark size & stability** — 50 is statistically noisy; sample 50 *fresh* from a
-   pool of hundreds–thousands per cycle, and/or run multiple trials and average.
-3. **ε value / schedule** — flat % (Dippy-style ~3%) vs decaying epsilon (SN9-style).
-4. ~~**Winner-take-all vs top-k**~~ — **DECIDED: winner-take-all** (single highest `S` earns).
-5. ~~**Partial credit vs binary**~~ — **DECIDED: graded per-task `[0,1]`** (avg over trials).
-6. ~~**Cost/efficiency weighting**~~ — **DECIDED: none this phase** (capability-only).
-7. ~~**Publication policy**~~ — **DECIDED: models published; benchmark + harness PRIVATE** (§9).
-8. **Private-benchmark leak control** *(new, from #7)* — validators see the private tasks, so
-   specify: canaries (leak tripwires), per-validator task partitions, validator stake/slashing,
-   and a pool rotation cadence.
-9. **Pool replenishment** — who generates/validates the (reused, private) task pool, the task
-   rubric format, and how decontamination is enforced. The biggest recurring cost.
+### 3. Reducing LLM variance — *how do we rank close models reliably?*
+**Current position:** set up a **deterministic environment** (greedy decoding + pinned serving +
+deterministic verifier) to remove scoring luck. **Caveat:** a deterministic *and observable*
+benchmark lets miners **overfit to it** — so determinism alone isn't enough. The resolution is
+determinism **for fairness** + **fresh/secret tasks** **for anti-overfit** (the two are
+independent; this couples to the publication decision).
+
+### 4. Skill-development scope — *how much agent should miners build?*
+**Current position:** **limit skill development to behavior only** — skills/prompt may steer
+*how* the agent acts, but must not encode capability or task knowledge. The intent is to push
+miners toward **fine-tuning the model** (where capability belongs) rather than engineering the
+scaffold to win. This is reinforced by the publication policy: since **all skills are now
+published** (§8), a skill is a shared commons — embedding answers or IP in it is both disallowed
+(audited) and self-defeating (handed to every competitor next cycle).
+
+### 5. Economics / burn rate — *is SN11 sustainable at current emission?*
+**Current numbers:**
+
+| | TAO/day |
+|---|---|
+| Network total generated | 3,600 |
+| SN11 emission share (0.25%) | 9 |
+| Emission paid to miners | 24 |
+| **Net** | **≈ −15 (loss)** |
+
+**Current position:** at the current emission share SN11 runs at a **~15 TAO/day deficit**
+(9 in − 24 out) — economics/sustainability must be addressed (raise emission share, cut costs, or
+adjust the payout). *(Figures to confirm with the client.)*
+
+### 6. Registration cost — *what stops a registration war?*
+**Current position:** the subnet's **minimum burn is set to zero**, so a UID costs **only the base
+transaction fee** to register — effectively free. Zero-cost registration invites a **registration
+war**: Sybil/spam registrations and cheap UID churn (miners cycling identities to farm
+earliest-wins, submit lottery-ticket variants, or dodge audits). The standard fix is a **non-zero
+minimum burn** — it prices out spam, *and* the recycled burn helps offset the eval deficit in #5.
+**Decision needed:** set a burn floor > 0 (flat, or demand-scaled), traded off against keeping
+entry open to new miners.

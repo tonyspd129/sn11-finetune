@@ -4,8 +4,8 @@ Validators turn each miner submission into a **score**, and set on-chain weights
 design is **deterministic**: every honest validator computes the same score, so consensus is
 automatic and collusion is hard.
 
-> Full context: eval lifecycle → [sn11-finetune.md](sn11-finetune.md) · threat model & audit →
-> [security-and-incentives.md](security-and-incentives.md)
+> Full context: eval lifecycle → [sn11-finetune.md](sn11-finetune.md) · miner side →
+> [miner.md](miner.md)
 
 ---
 
@@ -28,7 +28,7 @@ automatic and collusion is hard.
 | Stage | What | Outcome |
 |---|---|---|
 | **Screening** | 5–10 tasks | cheap gate; broken harness (won't build) or near-zero score → reject before spending full-eval GPU |
-| **Full eval** | 50+ **fresh, private** tasks | per task: `harness.run` → verifier returns a graded score `s_t ∈ [0,1]` (avg over `k` trials) |
+| **Full eval** | 50+ **held-out** tasks | per task: `harness.run` → verifier returns a graded score `s_t ∈ [0,1]` (avg over `k` trials) |
 | **Integrity audit** | the audit | static audit · model-ablation probe · distribution-of-lift · committee (borderline) |
 | **Score** | aggregate | `S = mean(s_t)` over the benchmark (domain-weighted), `S ∈ [0,1]` · **capability-only, no cost/turns/latency** · ε-margin vs public best · earliest-wins tie-break · **winner-take-all** |
 
@@ -67,16 +67,19 @@ automatic and collusion is hard.
 
 ## 6. Tasks & weights
 
-- **Score on a PRIVATE held-out pool** (reused across cycles; never published) of tasks the
-  miner couldn't prepare for; decontaminate against public corpora + embed a **canary** in
-  every task.
-- **Protect the tasks — you can see them, so don't leak them.** The benchmark's secrecy is a
-  validator responsibility: canaries detect leaks, per-validator partitions limit blast radius,
-  and leaking is **stake-slashable**.
+- **Score on a held-out pool** of tasks the miner couldn't prepare for; decontaminate against
+  public corpora + embed a **canary** in every task. *(Whether the pool is also kept
+  private/reused vs published fresh each cycle is an open client decision — sn11-finetune.md §10
+  #2. The discipline below applies to the **private** branch.)*
+- **If the pool is private: protect the tasks — you can see them, so don't leak them.** Its
+  secrecy is a validator responsibility: canaries detect leaks, per-validator partitions limit
+  blast radius, and leaking is **stake-slashable**.
 - **Commit-reveal** submissions during the window (no copying the live leader).
 - **Emission** → **winner-take-all**: the single highest-`S` eligible submission earns for the
   next cycle (must beat the published model by ε; earliest-wins tie-break).
-- **Publish models only** at cycle end — the **harness contents and benchmark stay private**.
+- **At cycle end, publish the winning model + ALL submissions' skills** (a public skill commons);
+  the **rest of the harness** (tools/`prompt.py`/`compaction.py`/`system.md`) **stays private**.
+  The benchmark's public/private status is **TBD** (§10 #2).
 
 ---
 

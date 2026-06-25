@@ -12,8 +12,8 @@ LLM (local vLLM / any OpenAI-compatible)  ⇄  Harness loop  ⇄  Tools (run in 
 ```
 
 This is the base every miner extends. Competition context: [../sn11-finetune.md](../sn11-finetune.md)
-(eval lifecycle) and [../security-and-incentives.md](../security-and-incentives.md) (what's
-allowed in each surface and how it's audited).
+(eval lifecycle), [../miner.md](../miner.md) (how to compete), and [../validator.md](../validator.md)
+(how it's evaluated & audited).
 
 ## Install / run
 ```bash

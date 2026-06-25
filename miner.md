@@ -1,11 +1,11 @@
 # SN11 — Miner Guide
 
 You compete by submitting a **fine-tuned Qwen3.6-35B-A3B model + an agent harness**. Each
-cycle they are scored on a fresh, private benchmark of coding & DevOps tasks. Beat the standing
+cycle they are scored on a fresh, held-out benchmark of coding & DevOps tasks. Beat the standing
 public best and you earn the subnet's emission for the next cycle.
 
-> Full context: eval lifecycle → [sn11-finetune.md](sn11-finetune.md) · rules & audit →
-> [security-and-incentives.md](security-and-incentives.md) · harness → [base_harness/README.md](base_harness/README.md)
+> Full context: eval lifecycle → [sn11-finetune.md](sn11-finetune.md) · how you're evaluated →
+> [validator.md](validator.md) · harness → [base_harness/README.md](base_harness/README.md)
 
 ---
 
@@ -28,7 +28,7 @@ Edit these files in your harness copy. Nothing to wire up — the harness loads 
 | Surface | File(s) | Contract |
 |---|---|---|
 | **System prompt** | `skills/system.md` | the base prose |
-| **Skills** | `skills/<name>/SKILL.md` | frontmatter (name/description/triggers/always_on) + body; loaded on demand via `load_skill`, or `always_on` to inject every turn |
+| **Skills** | `skills/<name>/SKILL.md` | frontmatter (name/description/triggers/always_on) + body; loaded on demand via `load_skill`, or `always_on` to inject every turn. **⚠ Skills are PUBLISHED every cycle** (shared commons) — keep them behavior-only, no IP |
 | **Tools** | `tools/<name>/{metadata.json, tool.py}` | `metadata.json` = JSON schema; `tool.py` exports `run(args, ctx)` |
 | **Compaction** | `compaction.py` | exports `make_compaction()` → a `Compaction` |
 | **Prompt builder** | `prompt.py` | exports `build_system_prompt(ctx)` → the system message |
@@ -49,8 +49,8 @@ memorized outputs. That isn't fine-tuning; it's cheating, and it's caught:
   model; if it still solves, your scaffold is carrying answers → disqualified.
 - **General, not narrow** — a *distribution-of-lift test* compares your scaffold to the
   baseline; broad modest lift is rewarded, a spiky lift on a few tasks is penalized.
-- **Tasks you've never seen** — you're always scored on private tasks you couldn't prepare
-  for (the benchmark is private and never published); memorizing won't help.
+- **Tasks you've never seen** — you're always scored on held-out tasks you couldn't prepare
+  for; memorizing won't help.
 - **Static audit** — system prompt, skills, `prompt.py`, tool descriptions, and code are
   scanned for embedded answers / task-pattern matching.
 
@@ -72,16 +72,19 @@ memorized outputs. That isn't fine-tuning; it's cheating, and it's caught:
 
 ```
 Week 1: submit (commit-reveal)  →  screening (5–10 tasks, cheap gate)
-        →  full eval (50+ private tasks you can't prepare for)  →  integrity audit  →  score
+        →  full eval (50+ held-out tasks you can't prepare for)  →  integrity audit  →  score
 Winner earns emission for the NEXT cycle (winner-take-all).
-Cycle end: MODELS are published; the harness and benchmark stay PRIVATE.
+Cycle end: winning MODEL + ALL SKILLS are published; tools/prompt/compaction/base prompt stay PRIVATE.
 ```
 
 **What publishes (and what doesn't):** if you win, your **model** is published — it becomes the
-public frontier everyone (including you) builds on next cycle. Your **harness stays private** —
-it's your IP and can't be copied. The **benchmark is never published**. So your bar is: take the
-published frontier model, improve on it, and **beat it by a margin on private tasks you've never
-seen**. Ties/copies don't win (earliest-wins + ε-margin).
+public frontier everyone (including you) builds on next cycle. **Every submission's skills are
+published too** (every cycle, not just the winner's) — they're a shared, behavior-only commons,
+so **don't put anything you consider IP into a `SKILL.md`**. The **rest of your harness stays
+private** — `tools/`, `prompt.py`, `compaction.py`, and `system.md` are your moat and can't be
+copied. The **benchmark's public/private status is still being decided**. So your bar is: take
+the published frontier model + skill commons, improve on them, and **beat the frontier by a margin
+on held-out tasks you've never seen**. Ties/copies don't win (earliest-wins + ε-margin).
 
 **Scoring:** each task is graded `s_t ∈ [0,1]` (partial credit — half-solving counts), your
 submission score is `S = mean(s_t)` over the benchmark, and it is **capability-only** — tokens,
