@@ -49,8 +49,8 @@ memorized outputs. That isn't fine-tuning; it's cheating, and it's caught:
   model; if it still solves, your scaffold is carrying answers → disqualified.
 - **General, not narrow** — a *distribution-of-lift test* compares your scaffold to the
   baseline; broad modest lift is rewarded, a spiky lift on a few tasks is penalized.
-- **Fresh tasks** — scoring tasks are private and new each cycle; memorizing published tasks
-  is worthless (they're never re-scored).
+- **Tasks you've never seen** — you're always scored on private tasks you couldn't prepare
+  for (the benchmark is private and never published); memorizing won't help.
 - **Static audit** — system prompt, skills, `prompt.py`, tool descriptions, and code are
   scanned for embedded answers / task-pattern matching.
 
@@ -72,13 +72,16 @@ memorized outputs. That isn't fine-tuning; it's cheating, and it's caught:
 
 ```
 Week 1: submit (commit-reveal)  →  screening (5–10 tasks, cheap gate)
-        →  full eval (50+ FRESH private tasks)  →  integrity audit  →  score
-Winner earns emission for the NEXT cycle.
-Cycle end: benchmark + all solutions are PUBLISHED.
+        →  full eval (50+ private tasks you can't prepare for)  →  integrity audit  →  score
+Winner earns emission for the NEXT cycle (winner-take-all).
+Cycle end: MODELS are published; the harness and benchmark stay PRIVATE.
 ```
 
-Publication is your advantage *and* your bar: study last cycle's winners, then **beat the public
-best by a margin on tasks you've never seen**. Ties/copies don't win (earliest-wins + ε-margin).
+**What publishes (and what doesn't):** if you win, your **model** is published — it becomes the
+public frontier everyone (including you) builds on next cycle. Your **harness stays private** —
+it's your IP and can't be copied. The **benchmark is never published**. So your bar is: take the
+published frontier model, improve on it, and **beat it by a margin on private tasks you've never
+seen**. Ties/copies don't win (earliest-wins + ε-margin).
 
 **Scoring:** each task is graded `s_t ∈ [0,1]` (partial credit — half-solving counts), your
 submission score is `S = mean(s_t)` over the benchmark, and it is **capability-only** — tokens,

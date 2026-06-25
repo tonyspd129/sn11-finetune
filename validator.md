@@ -18,7 +18,7 @@ automatic and collusion is hard.
    layer** (the in-harness allowlist is defense-in-depth only).
 3. **Verify** — after the agent finishes, inject the **trusted verifier into the same
    container** and score pass/fail.
-4. **Audit integrity** — the §4b checks (below).
+4. **Audit integrity** — the integrity-audit checks (below).
 5. **Score & set weights.**
 
 ---
@@ -29,12 +29,12 @@ automatic and collusion is hard.
 |---|---|---|
 | **Screening** | 5–10 tasks | cheap gate; broken harness (won't build) or near-zero score → reject before spending full-eval GPU |
 | **Full eval** | 50+ **fresh, private** tasks | per task: `harness.run` → verifier returns a graded score `s_t ∈ [0,1]` (avg over `k` trials) |
-| **Integrity audit** | §4b | static audit · model-ablation probe · distribution-of-lift · committee (borderline) |
+| **Integrity audit** | the audit | static audit · model-ablation probe · distribution-of-lift · committee (borderline) |
 | **Score** | aggregate | `S = mean(s_t)` over the benchmark (domain-weighted), `S ∈ [0,1]` · **capability-only, no cost/turns/latency** · ε-margin vs public best · earliest-wins tie-break · **winner-take-all** |
 
 ---
 
-## 3. Integrity audit (§4b) — what to enforce
+## 3. Integrity audit — what to enforce
 
 - **Static audit** — scan system prompt, `SKILL.md`, `prompt.py`, tool `metadata.json`
   (descriptions reach the model) and tool/compaction code for embedded answers, lookup
@@ -52,7 +52,7 @@ automatic and collusion is hard.
 - **Fixed sampling** (temperature/seed), **N trials averaged** to remove luck.
 - **Deterministic verifier** → any validator reproduces the same verdict.
 - **Reproducibility spot-checks** + **Yuma clipping** discount outlier/lazy validators.
-- The §4b automated checks (static/ablation/lift) are deterministic; only the committee is human.
+- The audit's automated checks (static/ablation/lift) are deterministic; only the committee is human.
 
 ---
 
@@ -67,12 +67,16 @@ automatic and collusion is hard.
 
 ## 6. Tasks & weights
 
-- **Score only on fresh, private tasks** drawn from the cycle's pool — never reuse published
-  tasks; decontaminate + canary every task.
+- **Score on a PRIVATE held-out pool** (reused across cycles; never published) of tasks the
+  miner couldn't prepare for; decontaminate against public corpora + embed a **canary** in
+  every task.
+- **Protect the tasks — you can see them, so don't leak them.** The benchmark's secrecy is a
+  validator responsibility: canaries detect leaks, per-validator partitions limit blast radius,
+  and leaking is **stake-slashable**.
 - **Commit-reveal** submissions during the window (no copying the live leader).
 - **Emission** → **winner-take-all**: the single highest-`S` eligible submission earns for the
-  next cycle (must beat the public best by ε; earliest-wins tie-break).
-- **Publish** the benchmark + all solutions at cycle end.
+  next cycle (must beat the published model by ε; earliest-wins tie-break).
+- **Publish models only** at cycle end — the **harness contents and benchmark stay private**.
 
 ---
 
