@@ -1,0 +1,13 @@
+{
+  "name": "execute_command",
+  "description": "Run a shell command in the workspace (cwd persists across calls). Returns combined stdout+stderr and the exit code.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "command": {"type": "string", "description": "The bash command to run."},
+      "timeout": {"type": "integer", "description": "Max seconds (default 120).", "default": 120}
+    },
+    "required": ["command"]
+  },
+  "version": "1.0"
+}

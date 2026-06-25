@@ -1,0 +1,12 @@
+{
+  "name": "load_skill",
+  "description": "Load the full instructions of an available skill by name (see the 'Available skills' index in the system prompt). Call this before relying on a skill's guidance.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "name": {"type": "string", "description": "The skill name from the index."}
+    },
+    "required": ["name"]
+  },
+  "version": "1.0"
+}

@@ -1,0 +1,14 @@
+{
+  "name": "view",
+  "description": "View a slice of a text file with line numbers. Defaults to the first 100 lines.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path": {"type": "string"},
+      "offset": {"type": "integer", "description": "1-based start line (default 1).", "default": 1},
+      "limit": {"type": "integer", "description": "Max lines (default 100).", "default": 100}
+    },
+    "required": ["path"]
+  },
+  "version": "1.0"
+}

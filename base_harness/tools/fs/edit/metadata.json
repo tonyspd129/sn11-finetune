@@ -1,0 +1,14 @@
+{
+  "name": "edit",
+  "description": "Replace an exact, UNIQUE string in a file ('old' must occur once). Omit 'old' to create/overwrite the file with 'new'.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path": {"type": "string"},
+      "old": {"type": "string", "description": "Exact text to replace (unique). Omit to create."},
+      "new": {"type": "string", "description": "Replacement text (or full content when creating)."}
+    },
+    "required": ["path", "new"]
+  },
+  "version": "1.0"
+}
