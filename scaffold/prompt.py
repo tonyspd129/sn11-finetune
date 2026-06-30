@@ -10,8 +10,10 @@ from __future__ import annotations
 
 
 def build_system_prompt(ctx) -> str:
-    system = ctx.base_system + ctx.skills.render_always_on()
-    index = ctx.skills.index()                 # progressive disclosure: catalog only; bodies via load_skill
-    if index:
-        system += "\n\n" + index
+    system = ctx.base_system                    # only system.md goes into the system prompt
+    # --- skills intentionally kept OUT of the system prompt (system.md only) ---
+    # system += ctx.skills.render_always_on()    # always-on skill bodies
+    # index = ctx.skills.index()                 # progressive disclosure: catalog only; bodies via load_skill
+    # if index:
+    #     system += "\n\n" + index
     return system
