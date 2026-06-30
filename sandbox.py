@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -35,6 +36,8 @@ HERE = Path(__file__).resolve().parent           # fine-tune/ — this script li
 ENV_FILE = HERE / ".env"
 SCENARIOS = HERE / "scenarios"                    # the eval pool: every task dir under here is run
 OUTPUT = HERE / "output"                          # results land in output/<timestamp>/<task>/
+VLIB = HERE / ".verifier-lib"                     # pytest (+deps) injected into the container via PYTHONPATH
+_VLIB_DEPS = ["pytest==8.4.1", "requests", "pyyaml"]   # expand if a task's test needs more pure-python deps
 sys.path.insert(0, str(HERE))                     # so `import scaffold` works regardless of cwd
 
 
@@ -113,10 +116,17 @@ def run_task(task_dir, mode="agent", network=None, max_turns=None, work_dir=None
             Path(work_dir).mkdir(parents=True, exist_ok=True)
             _d("cp", f"{cid}:{taskdir}/.", work_dir)
 
-        # inject + run the verifier (runs in /app — checks the task end state)
+        # inject + run the verifier (in the SAME container — checks the task end state).
         _d("cp", str(task / "verifier"), f"{cid}:/verifier")
         if vstyle == "pytest":
-            rc, vout = _exec(cid, f"bash {ventry}", workdir=taskdir, env={"TEST_DIR": "/verifier/tests"})
+            # Inject pytest (+ common deps) as a PYTHONPATH lib and run it with the CONTAINER's own
+            # python — offline, no uv/pip bootstrap, and the task's installed packages stay visible
+            # (so env tasks like broken-python test the system python being fixed). Replaces the
+            # network-dependent run-tests.sh bootstrap.
+            _d("cp", str(_ensure_verifier_lib()), f"{cid}:/opt/vlib")
+            cmd = "PY=$(command -v python3 || command -v python); $PY -m pytest /verifier/tests -rA"
+            rc, vout = _exec(cid, cmd, workdir=taskdir,
+                             env={"TEST_DIR": "/verifier/tests", "PYTHONPATH": "/opt/vlib"})
             score = _pytest_fraction(vout)
         else:
             rc, vout = _exec(cid, f"bash {ventry} {taskdir}", workdir=taskdir, env={"TF_WORKDIR": taskdir})
@@ -137,6 +147,24 @@ def _pytest_fraction(out):
     f = int(m.group(1)) if (m := re.search(r"(\d+) failed", out)) else 0
     f += int(m.group(1)) if (m := re.search(r"(\d+) error", out)) else 0
     return (p / (p + f)) if (p + f) else None
+
+
+def _ensure_verifier_lib():
+    """Build once: a flat dir of pure-python test deps (pytest + common libs) that gets injected
+    into the container via PYTHONPATH, so the verifier runs OFFLINE against the container's OWN
+    python — no `uv` download / `pip` bootstrap, and the task's installed packages stay visible.
+    Needs the host online ONCE to populate it (like `pip install openai`); containers stay offline."""
+    if (VLIB / "pytest").exists():
+        return VLIB
+    uv = shutil.which("uv")
+    if not uv:
+        raise RuntimeError("need `uv` on the host to build the verifier lib (pip install uv)")
+    VLIB.mkdir(parents=True, exist_ok=True)
+    p = subprocess.run([uv, "pip", "install", "--target", str(VLIB), *_VLIB_DEPS],
+                       capture_output=True, text=True)
+    if p.returncode:
+        raise RuntimeError(f"verifier lib build failed: {(p.stderr or p.stdout)[-400:]}")
+    return VLIB
 
 
 def _load_dotenv(path=ENV_FILE):

@@ -1,0 +1,32 @@
+# SN11 fine-tune workspace — the scaffold agent harness + the sandbox eval runner.
+#
+# Since the agent now runs HOST-SIDE (the loop + LLM client run here; tool calls exec into the
+# task container), the host that runs sandbox.py needs `openai`. Declaring it here makes setup
+# reproducible:
+#     uv sync                       # create .venv with the deps
+#     uv run python sandbox.py      # run every scenario in scenarios/
+# (The container itself needs nothing — see sandbox.py. The verifier's pytest is injected into
+#  the container separately and is NOT a host dependency.)
+
+[project]
+name = "sn11-finetune"
+version = "0.1.0"
+description = "SN11 scaffold agent harness + sandbox eval runner (host-side agent; tool calls exec into the task container)."
+readme = "sn11-finetune.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.40",            # scaffold/llm.py LLMClient — the agent's brain runs on the host
+]
+
+[dependency-groups]
+dev = [
+    "pytest==8.4.1",           # matches the pytest injected into containers for verification
+    "ruff>=0.6",               # lint/format the scaffold + sandbox sources
+]
+
+[tool.uv]
+package = false                # a workspace/app, not a distributable wheel; scaffold is imported from source
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"

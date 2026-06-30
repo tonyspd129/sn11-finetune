@@ -17,6 +17,9 @@ room
 # sandbox run artifacts: output/<timestamp>/<task>/{result.json, work/}
 output/
 
+# built once on the host, injected into containers via PYTHONPATH (pytest + deps)
+.verifier-lib/
+
 # secrets — real env (keys); .env.example IS tracked
 .env
 .env.local
