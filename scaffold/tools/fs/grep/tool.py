@@ -1,6 +1,6 @@
-"""grep — regex search across file CONTENTS (ripgrep if present, else grep). Schema: metadata.json."""
-import shutil
-import subprocess
+"""grep — regex search across file CONTENTS (ripgrep if present, else grep). Schema: metadata.json.
+Runs via ctx.shell, so the search executes wherever the shell targets (the container)."""
+import shlex
 
 from scaffold.toolkit import ToolResult, resolve_path
 
@@ -11,14 +11,12 @@ def run(args, ctx):
         return ToolResult("error: 'pattern' is required", is_error=True)
     path = resolve_path(ctx, args.get("path", ".") or ".")
     maxr = int(args.get("max_results", 50) or 50)
-    rg = shutil.which("rg")
-    cmd = [rg, "-n", "--no-heading", "-S", "--", pattern, path] if rg \
-        else ["grep", "-rnI", "--", pattern, path]
-    try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    except Exception as e:
-        return ToolResult(f"error: {e}", is_error=True)
-    lines = (p.stdout or "").splitlines()
+    q, pq = shlex.quote(pattern), shlex.quote(path)
+    # prefer ripgrep, fall back to grep — decided INSIDE the shell's target (the container)
+    cmd = (f"if command -v rg >/dev/null 2>&1; then rg -n --no-heading -S -- {q} {pq}; "
+           f"else grep -rnI -- {q} {pq}; fi 2>/dev/null")
+    out, _code, _to = ctx.shell.run(cmd, timeout=60)
+    lines = (out or "").splitlines()
     if not lines:
         return ToolResult("(no matches)")
     more = "" if len(lines) <= maxr else f"\n... [{len(lines) - maxr} more matches] ..."

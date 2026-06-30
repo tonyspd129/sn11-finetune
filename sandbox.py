@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
-"""SN11 sandbox — the minimal task-execution primitive.
+"""SN11 sandbox — run every scenario; agent on the HOST, tool calls INSIDE the container.
 
-    run the task image  →  inject + run the agent  →  inject + run the verifier  →  export result
+For each task under scenarios/:
+    build image → start container → run the scaffold agent ON THE HOST (its tools exec into
+    the container) → run the verifier in the container → export result.
 
-In-container layout:  /app = the TASK (agent + verifier act here) · /workspace = scaffold's home
-(the scaffold package + runner + instruction.md + the exported session.json).
-
-Configured EXTERNALLY (validator / DB / infra), NOT here:
-  • model serving + endpoint   → LLM_* env (auto-loaded from .env)
-  • network policy             → docker default (set at the infra level, not here)
-  • image prep                 → this runner ALWAYS preps (installs python3 + openai for the
-                                 agent), since the task images are unprepared; in production
-                                 that prep is baked into the image at build time instead.
+Host-side execution: the agent loop + the LLM client run in THIS process. Only the agent's
+tool calls (execute_command / view / edit / write / grep) cross into the container, through a
+`DockerShell` (docker exec / docker cp). So the container needs NO python/openai/prep, and the
+agent reaches the model from the host regardless of the task's own (possibly broken) network.
 
     python sandbox.py        # no args: run EVERY task in scenarios/, one by one
 
-It runs the scaffold agent against every task dir under scenarios/ and writes each run to
-output/<timestamp>/<task>/ (result.json incl. the session + work/ = the /app end-state).
-LLM_* and the run knobs — including MAX_TURNS — are auto-loaded from `.env` next to this
-script (no `source .env` needed); an already-set shell var still wins over the file.
+Each run lands in output/<timestamp>/<task>/ (result.json incl. the session + work/ = the
+/app end-state). LLM_* and the run knobs (incl. MAX_TURNS) auto-load from `.env` next to this
+script (no `source .env`); an already-set shell var still wins. Optional env:
+  • SANDBOX_NETWORK — docker network for the task container (default = docker default)
+  • BUILD_TIMEOUT   — per-image build timeout in seconds (default 1800)
+
+Requires on the HOST: docker + python with `openai` installed (the agent runs here now).
 """
 from __future__ import annotations
 
@@ -32,25 +32,10 @@ import uuid
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent           # fine-tune/ — this script lives here
-SCAFFOLD = HERE / "scaffold"
 ENV_FILE = HERE / ".env"
 SCENARIOS = HERE / "scenarios"                    # the eval pool: every task dir under here is run
 OUTPUT = HERE / "output"                          # results land in output/<timestamp>/<task>/
-
-# Agent entrypoint copied into the container: run scaffold against the configured model (LLM_* env).
-_RUNNER = '''import os, sys
-sys.path.insert(0, "/workspace")                       # scaffold lives in /workspace (the agent's home)
-from scaffold import Harness
-task = open("/workspace/instruction.md").read()
-# agent acts on the TASK at /app; budgets + sampling come from env (MAX_TURNS,
-# MAX_TOKENS_BUDGET, WALL_CLOCK_S, LLM_TEMPERATURE, LLM_MAX_TOKENS), read by Harness/LLMClient.
-s = Harness(workdir=os.environ.get("AGENT_WORKDIR", "/app")).run(task)
-try:
-    s.export("/workspace/session.json")                # trajectory export
-except Exception:
-    pass
-print("STOP_REASON:", s.stop_reason, "TURNS:", s.turns)
-'''
+sys.path.insert(0, str(HERE))                     # so `import scaffold` works regardless of cwd
 
 
 def _d(*args, timeout=1800):
@@ -68,7 +53,7 @@ def _exec(cid, sh, workdir=None, env=None, timeout=900):
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 
-def run_task(task_dir, mode="agent", network=None, max_turns=None, work_dir=None, prep=False):
+def run_task(task_dir, mode="agent", network=None, max_turns=None, work_dir=None, build_timeout=1800):
     task = Path(task_dir).resolve()
     # unified season1 layout: instruction.md + environment/ + solution/ + verifier/
     build_ctx = task / "environment" if (task / "environment" / "Dockerfile").exists() else task
@@ -81,59 +66,54 @@ def run_task(task_dir, mode="agent", network=None, max_turns=None, work_dir=None
     sol = next((p for p in (task / "solution").iterdir() if p.is_file()), None) \
         if (task / "solution").is_dir() else None
 
-    # run the task image
+    # build the task image (bounded — a runaway build must not hang the batch)
     img = f"sn11/{task.parent.name}/{task.name}".lower().replace("_", "-")[:120]
-    b = _d("build", "-t", img, str(build_ctx))
+    try:
+        b = _d("build", "-t", img, str(build_ctx), timeout=build_timeout)
+    except subprocess.TimeoutExpired:
+        return {"task": task.name, "score": 0.0, "passed": False,
+                "error": f"build timeout after {build_timeout}s"}
     if b.returncode:
         return {"task": task.name, "score": 0.0, "passed": False, "error": b.stderr[-800:]}
+
     cid = "sn11-" + uuid.uuid4().hex[:10]
     run = ["run", "-d", "--name", cid] + (["--network", network] if network else [])
     _d(*run, img, "sleep", "infinity")
-    # /app = the TASK (image WORKDIR; agent + verifier act here); /workspace = our scaffold's home
     taskdir = _d("inspect", "-f", "{{.Config.WorkingDir}}", img).stdout.strip() or "/app"
-    _exec(cid, f"mkdir -p {taskdir} /workspace")
+    _exec(cid, f"mkdir -p {taskdir}")
     try:
         session = None
-        # inject + run the agent
         if mode == "gold":
             if not sol:
                 agent = "gold: no solution file"
             else:
-                _d("cp", str(sol), f"{cid}:/workspace/solution")
-                rc, _o = _exec(cid, "bash /workspace/solution", workdir=taskdir)
+                _d("cp", str(sol), f"{cid}:/tmp/solution")
+                rc, _o = _exec(cid, "bash /tmp/solution", workdir=taskdir)
                 agent = f"gold rc={rc}"
         else:
-            _d("cp", str(task / "instruction.md"), f"{cid}:/workspace/instruction.md")
-            _d("cp", str(SCAFFOLD), f"{cid}:/workspace/scaffold")
-            runner = Path("/tmp") / f"_sn11runner_{uuid.uuid4().hex[:6]}.py"
-            runner.write_text(_RUNNER)
-            _d("cp", str(runner), f"{cid}:/workspace/runner.py")
-            runner.unlink(missing_ok=True)
-            if prep:   # UNPREPARED images: ensure python3 + openai (normally an infra/image-prep step)
-                _exec(cid, "python3 -m pip --version >/dev/null 2>&1 || "
-                           "(apt-get update -qq && apt-get install -y -qq python3-pip) || "
-                           "python3 -m ensurepip --upgrade >/dev/null 2>&1; "
-                           "python3 -m pip install -q --break-system-packages openai 2>/dev/null || "
-                           "python3 -m pip install -q openai", timeout=400)
-            # forward model + sampling + budget knobs from the host env (e.g. sourced .env)
-            env = {"AGENT_WORKDIR": taskdir}
-            for k in ("LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY", "OPENROUTER_API_KEY",
-                      "LLM_TEMPERATURE", "LLM_MAX_TOKENS",
-                      "MAX_TURNS", "MAX_TOKENS_BUDGET", "WALL_CLOCK_S"):
-                if os.environ.get(k):
-                    env[k] = os.environ[k]
-            if max_turns is not None:                 # explicit override; main() omits it so .env MAX_TURNS wins
-                env["MAX_TURNS"] = str(max_turns)
-            rc, out = _exec(cid, "python3 /workspace/runner.py", workdir="/workspace", env=env)
-            agent = f"agent rc={rc}: {out[-400:]}"
-            session = _read_session(cid)        # pull scaffold's LLM conversation out BEFORE teardown
+            # HOST-SIDE agent: the scaffold loop + LLMClient run HERE; tool calls exec into the
+            # container via DockerShell. The container needs no python/openai/prep, and the LLM
+            # is reached from the host (LLM_* + budgets come from env, loaded by _load_dotenv).
+            from scaffold import Harness
+            from scaffold.llm import LLMClient
+            from scaffold.toolkit import DockerShell
+            instruction = (task / "instruction.md").read_text()
+            shell = DockerShell(cid, cwd=taskdir)
+            hk = {"max_turns": max_turns} if max_turns is not None else {}
+            sess = Harness(shell=shell, llm=LLMClient(), **hk).run(instruction)
+            try:
+                session = json.loads(sess.to_json())     # full transcript + raw llm_calls
+            except Exception:
+                session = {"stop_reason": sess.stop_reason, "turns": sess.turns,
+                           "error": "session not JSON-serializable"}
+            agent = f"agent stop={sess.stop_reason} turns={sess.turns}"
 
-        # export the agent's WORK: the task fs (/app) end-state, BEFORE the verifier mutates it
+        # export the agent's WORK: the /app end-state, BEFORE the verifier mutates it
         if work_dir:
             Path(work_dir).mkdir(parents=True, exist_ok=True)
             _d("cp", f"{cid}:{taskdir}/.", work_dir)
 
-        # inject + run the verifier (runs in /app — checks the task's end state)
+        # inject + run the verifier (runs in /app — checks the task end state)
         _d("cp", str(task / "verifier"), f"{cid}:/verifier")
         if vstyle == "pytest":
             rc, vout = _exec(cid, f"bash {ventry}", workdir=taskdir, env={"TEST_DIR": "/verifier/tests"})
@@ -150,21 +130,6 @@ def run_task(task_dir, mode="agent", network=None, max_turns=None, work_dir=None
                 "session": session, "work_dir": work_dir, "verify": vout[-600:]}
     finally:
         _d("rm", "-f", cid)
-
-
-def _read_session(cid):
-    """Copy scaffold's /workspace/session.json (the full LLM conversation: messages, tool_log,
-    usage) out of the container and parse it. Returns the dict, or None if the agent wrote none."""
-    tmp = Path("/tmp") / f"_sn11sess_{uuid.uuid4().hex[:6]}.json"
-    r = _d("cp", f"{cid}:/workspace/session.json", str(tmp))
-    if r.returncode or not tmp.exists():
-        return None
-    try:
-        data = json.loads(tmp.read_text())
-    except Exception:
-        data = None
-    tmp.unlink(missing_ok=True)
-    return data
 
 
 def _pytest_fraction(out):
@@ -205,14 +170,21 @@ def main():
     if not tasks:
         print(f"no scenarios found under {SCENARIOS}", file=sys.stderr)
         sys.exit(1)
+    network = os.environ.get("SANDBOX_NETWORK") or None
+    build_timeout = int(os.environ.get("BUILD_TIMEOUT") or "1800")
     out_root = OUTPUT / time.strftime("%Y%m%d-%H%M%S")
-    print(f"running {len(tasks)} scenarios → {out_root}", flush=True)
+    print(f"running {len(tasks)} scenarios → {out_root}"
+          f"  (net={network or 'default'}, build_timeout={build_timeout}s)", flush=True)
     summary = []
     for i, task in enumerate(tasks, 1):
         print(f"[{i}/{len(tasks)}] {task.name} ...", flush=True)
         out_dir = out_root / task.name
-        # agent mode, always prep, MAX_TURNS from env; bundle result.json + work/ under the task dir
-        r = run_task(str(task), mode="agent", prep=True, work_dir=str(out_dir / "work"))
+        try:                                         # one task must never abort the batch
+            r = run_task(str(task), mode="agent", network=network,
+                         work_dir=str(out_dir / "work"), build_timeout=build_timeout)
+        except Exception as e:
+            r = {"task": task.name, "pool": task.parent.name, "passed": False, "score": 0.0,
+                 "error": f"{type(e).__name__}: {e}"}
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "result.json").write_text(json.dumps(r, indent=2))     # full result, incl. session
         s = r.get("session") if isinstance(r.get("session"), dict) else {}

@@ -4,8 +4,10 @@ The actual tools live as plugins under `scaffold/tools/**/tool.py` (each exports
 from __future__ import annotations
 
 import os
+import posixpath
 import shlex
 import subprocess
+import tempfile
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -24,13 +26,16 @@ class ToolResult:
 
 
 class Shell:
-    """Workspace shell. Stateless per call but PERSISTS cwd via a trailing marker, so
-    `cd` works across execute_command calls. Combines stdout+stderr (stderr merged)."""
+    """Workspace shell — the LOCAL backend (runs commands in this process's host).
+    Stateless per call but PERSISTS cwd via a trailing marker, so `cd` works across calls.
+    Combines stdout+stderr. `DockerShell` subclasses this to run everything INSIDE a
+    container instead; tools talk only to `ctx.shell`, so they are backend-agnostic."""
 
     def __init__(self, cwd: str = "/workspace"):
         os.makedirs(cwd, exist_ok=True)
         self.cwd = os.path.abspath(cwd)
 
+    # -- command execution (cwd-marker wrapping is shared; `_spawn` is the backend) ------
     def run(self, command: str, timeout: int = 120) -> tuple[str, int, bool]:
         marker = f"__CWD_{uuid.uuid4().hex}__"
         wrapped = (
@@ -40,29 +45,88 @@ class Shell:
             f"printf '\\n{marker}%s\\n' \"$(pwd)\"\n"
             f"exit $rc\n"
         )
-        timed_out = False
+        out, code, timed_out = self._spawn(wrapped, timeout)
+        if marker in out:
+            idx = out.rfind(marker)
+            tail = out[idx + len(marker):].strip().splitlines()
+            if tail and tail[0]:
+                self.cwd = tail[0]              # persist cwd across separate invocations
+            out = out[:idx].rstrip("\n")
+        if timed_out:
+            out += f"\n... [timed out after {timeout}s] ..."
+        return out, code, timed_out
+
+    def _spawn(self, wrapped: str, timeout: int) -> tuple[str, int, bool]:
         try:
             p = subprocess.run(
                 ["bash", "-c", wrapped],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,  # merge so the marker is truly last
                 text=True, timeout=timeout, start_new_session=True,
             )
-            out, code = (p.stdout or ""), p.returncode
+            return (p.stdout or ""), p.returncode, False
         except subprocess.TimeoutExpired as e:
             out = (e.stdout or "") if isinstance(e.stdout, str) else ""
-            code, timed_out = -1, True
-        if marker in out:
-            idx = out.rfind(marker)
-            tail = out[idx + len(marker):].strip().splitlines()
-            if tail and tail[0]:
-                self.cwd = tail[0]
-            out = out[:idx].rstrip("\n")
-        if timed_out:
-            out += f"\n... [timed out after {timeout}s] ..."
-        return out, code, timed_out
+            return out, -1, True
+
+    # -- file primitives the fs tools use (so they never touch the host directly) --------
+    def read_text(self, path: str) -> Optional[str]:
+        try:
+            if not os.path.isfile(path):
+                return None
+            with open(path, encoding="utf-8", errors="replace") as f:
+                return f.read()
+        except OSError:
+            return None
+
+    def write_text(self, path: str, content: str) -> None:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
 
     def close(self) -> None:
         pass
+
+
+class DockerShell(Shell):
+    """Container backend: identical cwd-marker semantics, but every command/file op runs
+    INSIDE `container` via `docker exec`/`docker cp`. The agent loop stays on the host;
+    only these calls cross into the container. cwd is a CONTAINER path (default /app)."""
+
+    def __init__(self, container: str, cwd: str = "/app"):
+        self.container = container
+        self.cwd = cwd
+        self._docker("exec", container, "mkdir", "-p", cwd)   # ensure the workdir exists
+
+    def _docker(self, *args: str, timeout: int = 120) -> subprocess.CompletedProcess:
+        return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
+
+    def _spawn(self, wrapped: str, timeout: int) -> tuple[str, int, bool]:
+        try:
+            p = subprocess.run(
+                ["docker", "exec", self.container, "bash", "-c", wrapped],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, timeout=timeout,
+            )
+            return (p.stdout or ""), p.returncode, False
+        except subprocess.TimeoutExpired as e:
+            out = (e.stdout or "") if isinstance(e.stdout, str) else ""
+            return out, -1, True
+
+    def read_text(self, path: str) -> Optional[str]:
+        p = self._docker("exec", self.container, "cat", "--", path)
+        return p.stdout if p.returncode == 0 else None
+
+    def write_text(self, path: str, content: str) -> None:
+        parent = posixpath.dirname(path) or "/"
+        self._docker("exec", self.container, "mkdir", "-p", parent)
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".sn11",
+                                         delete=False) as tf:
+            tf.write(content)
+            tmp = tf.name
+        try:                                  # docker cp is binary-safe (no shell escaping)
+            self._docker("cp", tmp, f"{self.container}:{path}")
+        finally:
+            os.unlink(tmp)
 
 
 @dataclass

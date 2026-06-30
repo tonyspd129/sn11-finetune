@@ -46,6 +46,7 @@ class Harness:
         self,
         *,
         llm: LLMClient | None = None,
+        shell: Shell | None = None,
         workdir: str = "/workspace",
         max_turns: int | None = None,
         max_tokens_budget: int | None = None,
@@ -53,6 +54,7 @@ class Harness:
         config: dict | None = None,
     ):
         self.llm = llm or LLMClient()
+        self._shell = shell                    # host-side caller passes a DockerShell; else local
         self.tools = ToolManager(discover_tools(str(_PKG / "tools")))   # broken plugin RAISES
         self.skills = SkillManager(discover_skills(str(_PKG / "skills")))
         self.system_prompt = load_system_prompt(str(_PKG / "skills")) or "You are an autonomous terminal agent."
@@ -80,7 +82,7 @@ class Harness:
         return out
 
     def run(self, task: str) -> Session:
-        shell = Shell(cwd=self.workdir)
+        shell = self._shell or Shell(cwd=self.workdir)   # injected DockerShell, else local
         ctx = RunContext(shell=shell, workdir=self.workdir, config=self.config,
                          skill_lookup=self.skills.get_body)
         system = self._build_system(task)           # prompt builder owns prose+skills assembly

@@ -1,6 +1,5 @@
-"""write — create or overwrite a file with the given content (parent dirs created). Schema: metadata.json."""
-import os
-
+"""write — create or overwrite a file with the given content (parent dirs created).
+Writes via ctx.shell, so it acts wherever the shell targets (the container). Schema: metadata.json."""
 from scaffold.toolkit import ToolResult, resolve_path
 
 
@@ -14,9 +13,7 @@ def run(args, ctx):
     if not isinstance(content, str):
         content = str(content)
     try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
+        ctx.shell.write_text(path, content)
     except Exception as e:
         return ToolResult(f"error: {e}", is_error=True)
     nlines = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
