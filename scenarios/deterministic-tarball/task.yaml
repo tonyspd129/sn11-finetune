@@ -1,0 +1,34 @@
+id: terminal-bench/deterministic-tarball
+source: terminal-bench
+task_type: implement
+category: reproducible-builds
+domain:
+- reproducible-builds
+- deterministic-packaging
+- tar
+- zstd
+- file-operations
+- text-processing
+- binary-detection
+- performance-optimization
+- security
+- line-endings
+- metadata-normalization
+difficulty: medium
+instruction: instruction.md
+environment:
+  tier: 1
+  type: compose
+  compose: environment/docker-compose.yaml
+  service: client
+  build_context: environment/
+verifier:
+  type: pytest
+  entry: verifier/run-tests.sh
+  test_dir: verifier/tests
+  pass: exit-zero
+solution: solution/solution.sh
+upstream:
+  parser_name: pytest
+  max_agent_timeout_sec: 900.0
+  max_test_timeout_sec: 180.0

@@ -1,0 +1,27 @@
+id: terminal-bench/conda-env-conflict-resolution
+source: terminal-bench
+task_type: implement
+category: debugging
+domain:
+- data-science
+- debugging
+- package-management
+- system
+difficulty: medium
+instruction: instruction.md
+environment:
+  tier: 1
+  type: compose
+  compose: environment/docker-compose.yaml
+  service: client
+  build_context: environment/
+verifier:
+  type: pytest
+  entry: verifier/run-tests.sh
+  test_dir: verifier/tests
+  pass: exit-zero
+solution: solution/solution.sh
+upstream:
+  parser_name: pytest
+  max_agent_timeout_sec: 1000.0
+  max_test_timeout_sec: 600.0

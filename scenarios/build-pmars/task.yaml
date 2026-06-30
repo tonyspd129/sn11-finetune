@@ -1,0 +1,29 @@
+id: terminal-bench/build-pmars
+source: terminal-bench
+task_type: build
+category: software-engineering
+domain:
+- build-tools
+- compilation
+- debian
+- gaming
+- pmars
+- corewars
+difficulty: medium
+instruction: instruction.md
+environment:
+  tier: 1
+  type: compose
+  compose: environment/docker-compose.yaml
+  service: client
+  build_context: environment/
+verifier:
+  type: pytest
+  entry: verifier/run-tests.sh
+  test_dir: verifier/tests
+  pass: exit-zero
+solution: solution/solution.sh
+upstream:
+  parser_name: pytest
+  max_agent_timeout_sec: 900.0
+  max_test_timeout_sec: 180.0

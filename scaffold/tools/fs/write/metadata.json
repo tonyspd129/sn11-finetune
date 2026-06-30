@@ -1,0 +1,13 @@
+{
+  "name": "write",
+  "description": "Create or overwrite a file with the given content (parent directories are created). For a targeted in-place change to an existing file, use `edit` instead.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path": {"type": "string", "description": "File path (relative to cwd or absolute)."},
+      "content": {"type": "string", "description": "Full file content to write."}
+    },
+    "required": ["path", "content"]
+  },
+  "version": "1.0"
+}

@@ -1,0 +1,14 @@
+{
+  "name": "grep",
+  "description": "Search file CONTENTS for a regex pattern (recursive). Returns file:line matches, capped.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "pattern": {"type": "string"},
+      "path": {"type": "string", "description": "Dir/file to search (default cwd).", "default": "."},
+      "max_results": {"type": "integer", "default": 50}
+    },
+    "required": ["pattern"]
+  },
+  "version": "1.0"
+}

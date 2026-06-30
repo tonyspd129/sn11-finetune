@@ -1,0 +1,232 @@
+[
+ {
+  "task": "acl-permissions-inheritance",
+  "instruction_snippet": "Create a shared directory structure with Linux ACLs that demonstrates proper permission inheritance.  Requirements: 1. Create directory /srv/shared with the fol",
+  "has_gold": true
+ },
+ {
+  "task": "broken-networking",
+  "instruction_snippet": "The networking on this machine is broken, and doesn't work. Fix it so I can curl example.com.",
+  "has_gold": true
+ },
+ {
+  "task": "broken-python",
+  "instruction_snippet": "There's something wrong with my system-wide python installation - I can't seem to install packages with pip.",
+  "has_gold": true
+ },
+ {
+  "task": "build-cython-ext",
+  "instruction_snippet": "pyknotid is a Python package for computational topology and knot theory. I want to use its fast Cython extensions implemented (chelpers, ccomplexity, cinvariant",
+  "has_gold": true
+ },
+ {
+  "task": "build-initramfs-qemu",
+  "instruction_snippet": "I've built the linux kernel from source. Please make for me an initramfs so that I can run the command run qemu-system-x86_64 -kernel /app/linux-6.9/arch/x86/bo",
+  "has_gold": true
+ },
+ {
+  "task": "build-linux-kernel-qemu",
+  "instruction_snippet": "Build linux kernel linux-6.9 from source. I've created an initial `initramfs.list` in the `ramfs` directory for you, so once its built, all you should have to d",
+  "has_gold": true
+ },
+ {
+  "task": "build-pmars",
+  "instruction_snippet": "Build pMARS (http://www.koth.org/pmars/) from source with no X server.   Since koth.org is unreliable, get the source from Debian packages instead. Extract the ",
+  "has_gold": true
+ },
+ {
+  "task": "build-pov-ray",
+  "instruction_snippet": "Build POV-Ray 2.2. Find and download the source archives, extract them to `/app/povray-2.2`, then compile and install to `/usr/local/bin/povray`.    We will tes",
+  "has_gold": true
+ },
+ {
+  "task": "build-stp",
+  "instruction_snippet": "Build simple theorem prover (STP) from /app/stp. After the installation, make sure you can directly execute `stp` as a shell command.",
+  "has_gold": true
+ },
+ {
+  "task": "build-tcc-qemu",
+  "instruction_snippet": "I have QEMU running a custom linux kernel. To run it you can run qemu-system-x86_64 -kernel /app/linux-6.9/arch/x86/boot/bzImage -initrd /app/ramfs/initramfs.cp",
+  "has_gold": true
+ },
+ {
+  "task": "compile-compcert",
+  "instruction_snippet": "Under /tmp/CompCert/, build the CompCert C verified compiler (version 3.13.1) from source, configuring it to the operating system and instruction set architectu",
+  "has_gold": true
+ },
+ {
+  "task": "conda-env-conflict-resolution",
+  "instruction_snippet": "You need to debug and fix a conda environment conflict for a data science project. The project requires specific versions of packages that are conflicting with ",
+  "has_gold": true
+ },
+ {
+  "task": "configure-git-webserver",
+  "instruction_snippet": "Configure a git server so that I can run on my computer     git clone user@server:/git/server     echo \"hello world\" > hello.html     git add hello.html     git",
+  "has_gold": true
+ },
+ {
+  "task": "create-bucket",
+  "instruction_snippet": "Create an S3 bucket named \"sample-bucket\" using the aws cli and set it to public read.",
+  "has_gold": true
+ },
+ {
+  "task": "cron-broken-network",
+  "instruction_snippet": "For some reason I can't /usr/bin/curl example.com, can you figure out why and fix it so I can /usr/bin/curl example.com?",
+  "has_gold": true
+ },
+ {
+  "task": "deterministic-tarball",
+  "instruction_snippet": "Create a deterministic build script that produces bit-for-bit reproducible archives from an existing source tree.  Current Environment: A complex source tree ex",
+  "has_gold": true
+ },
+ {
+  "task": "fibonacci-server",
+  "instruction_snippet": "Create and run a server on port 3000 that has a single GET endpoint: /fib.  It should expect a query param /fib?n={some number} and return the nth Fibonacci num",
+  "has_gold": true
+ },
+ {
+  "task": "fix-git",
+  "instruction_snippet": "I just made some changes to my personal site and checked out master, but now I can't find those changes. Please help me find them and merge them into master.",
+  "has_gold": true
+ },
+ {
+  "task": "fix-permissions",
+  "instruction_snippet": "A script called '/app/process_data.sh' won't run. Figure out what's wrong and fix it so the script can run successfully.",
+  "has_gold": true
+ },
+ {
+  "task": "gcc-compiler-optimization",
+  "instruction_snippet": "Compile a C program using different GCC optimization flags and analyze how they affect the binary size and runtime performance.    ## Overview   In this task, y",
+  "has_gold": true
+ },
+ {
+  "task": "git-leak-recovery",
+  "instruction_snippet": "A secret was accidentally committed to this repository in /app and then removed by rewriting history. Please   1. recover the secret and write it to a /app/secr",
+  "has_gold": true
+ },
+ {
+  "task": "git-multibranch",
+  "instruction_snippet": "Set up a Git server that hosts a project over SSH at git@localhost:/git/project. The server should accept password authentication with the password \"password\". ",
+  "has_gold": true
+ },
+ {
+  "task": "git-workflow-hack",
+  "instruction_snippet": "I have created a GitHub repository to host a workflow and added an `info.md` file containing my CV.   Your tasks are: 1. Transform the repository into a persona",
+  "has_gold": true
+ },
+ {
+  "task": "hdfs-deployment",
+  "instruction_snippet": "You need to deploy a small Hadoop Distributed File System (HDFS) cluster locally on a single node and start three daemons.  You need to:  1. Install hadoop-3.3.",
+  "has_gold": true
+ },
+ {
+  "task": "home-server-https",
+  "instruction_snippet": "Set up a home server that can be accessed via HTTPS from the internet. Since many ISPs block port 80 for inbound connections, you cannot use HTTP-based certific",
+  "has_gold": true
+ },
+ {
+  "task": "incompatible-python-fasttext",
+  "instruction_snippet": "For some reason the fasttext python package is not currently working for me.  Can you please help me figure out why and fix it?  I need to be able to use it wit",
+  "has_gold": true
+ },
+ {
+  "task": "install-klee-minimal",
+  "instruction_snippet": "Install the symbolic execution tool KLEE with stp as its solver and llvm-16 (no uClibc). You can assume the system already has llvm-16 installed (clang-16 and l",
+  "has_gold": true
+ },
+ {
+  "task": "install-windows-3.11",
+  "instruction_snippet": "Run Windows 3.11 for Workgroups in a virtual machine using qemu. You image is in `/app/isos/win311.img`. This image is known to be compatible with QEMU 5.2.0  V",
+  "has_gold": true
+ },
+ {
+  "task": "install-windows-xp",
+  "instruction_snippet": "Install, and run Windows XP SP3 (32-bit) in a virtual machine using QEMU. Create the virtual NTFS hard disk as `/app/isos/xp.img` to install windows. Your Windo",
+  "has_gold": true
+ },
+ {
+  "task": "intrusion-detection",
+  "instruction_snippet": "Create an intrusion detection system that can analyze log files and identify potential security threats. You need to create two shell scripts to handle intrusio",
+  "has_gold": true
+ },
+ {
+  "task": "jupyter-notebook-server",
+  "instruction_snippet": "Set up a secure Jupyter Notebook server with the following requirements:  1. Install Jupyter Notebook with the necessary dependencies 2. Configure the server to",
+  "has_gold": true
+ },
+ {
+  "task": "log-summary",
+  "instruction_snippet": "In `/app/logs` there are multiple `.log` files from different services. Your task is to scan all `.log` files and count how many lines contain \"ERROR\", \"WARNING",
+  "has_gold": true
+ },
+ {
+  "task": "log-summary-date-ranges",
+  "instruction_snippet": "You are given multiple log files stored in /app/logs. Each log file name follows the pattern YYYY-MM-DD_<source>.log (e.g., 2025-08-10_db.log), indicating the d",
+  "has_gold": true
+ },
+ {
+  "task": "mailman",
+  "instruction_snippet": "Spin up a mailing list server for our reading group: reading-group@local.edu using postfix and mailman3 (both are installed already). The mailing list has basic",
+  "has_gold": true
+ },
+ {
+  "task": "nginx-request-logging",
+  "instruction_snippet": "Set up an Nginx web server with advanced request logging and custom configurations. Your task is to:  1. Install Nginx web server 2. Configure the server to:   ",
+  "has_gold": true
+ },
+ {
+  "task": "openssl-selfsigned-cert",
+  "instruction_snippet": "Your company needs a self-signed TLS certificate for an internal development server. Create a self-signed certificate using OpenSSL with the following requireme",
+  "has_gold": true
+ },
+ {
+  "task": "processing-pipeline",
+  "instruction_snippet": "There's a data processing pipeline in the current directory consisting of multiple scripts that need to run in sequence. The main script '/app/run_pipeline.sh' ",
+  "has_gold": true
+ },
+ {
+  "task": "pypi-server",
+  "instruction_snippet": "Create a python package called vectorops, then build this package and set up a pypi server on port 8080 locally which also hosts this package. It should be poss",
+  "has_gold": true
+ },
+ {
+  "task": "qemu-alpine-ssh",
+  "instruction_snippet": "Start the /app/alpine.iso image in qemu, and then start an ssh server on the alpine linux vm. When you're done, I should be able to run `ssh -p 2222 root@localh",
+  "has_gold": true
+ },
+ {
+  "task": "qemu-startup",
+  "instruction_snippet": "Start the /app/alpine.iso image in qemu in such a way that I can connect to it via `telnet 127.0.0.1 6665`. When I run telnet I will expect to see the login pro",
+  "has_gold": true
+ },
+ {
+  "task": "regex-log",
+  "instruction_snippet": "Write a regex expression that matches dates in the format YYYY-MM-DD appearing in lines that contain an IPv4 address in a log file. If multiple dates are presen",
+  "has_gold": true
+ },
+ {
+  "task": "sanitize-git-repo",
+  "instruction_snippet": "Please help sanitize my github repository \"dclm\" of all API keys.  Please find and remove all such information and replace it with placeholder values as follows",
+  "has_gold": true
+ },
+ {
+  "task": "setup-custom-dev-env",
+  "instruction_snippet": "I just bought a new linux machine. I don't know what softwares has been installed. My plan is to use `zsh` as the default shell but sometimes use `bash` as well",
+  "has_gold": true
+ },
+ {
+  "task": "slurm-simple-node-monitoring",
+  "instruction_snippet": "Write a bash script (should run with `bash ..`) that will run to monitor idle nodes in a SLURM-based cluster.  Given a partition collect how many nodes are idle",
+  "has_gold": true
+ },
+ {
+  "task": "sqlite-with-gcov",
+  "instruction_snippet": "Compile SQLite in /app/sqlite with gcov instrumentation and make it available in the PATH. The SQLite source snapshot is pre-vendored at /app/vendor/sqlite-foss",
+  "has_gold": true
+ },
+ {
+  "task": "sudo-llvm-ir",
+  "instruction_snippet": "Modify the sudo's build configuration so that it emits LLVM IR.  You are provided with the source code of sudo under `/app/program/sudo/`.  Your goal is to ensu",
+  "has_gold": true
+ }
+]

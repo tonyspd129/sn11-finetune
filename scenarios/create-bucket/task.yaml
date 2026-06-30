@@ -1,0 +1,26 @@
+id: terminal-bench/create-bucket
+source: terminal-bench
+task_type: implement
+category: file-operations
+domain:
+- cloud
+- storage
+- system
+difficulty: easy
+instruction: instruction.md
+environment:
+  tier: 1
+  type: compose
+  compose: environment/docker-compose.yaml
+  service: client
+  build_context: environment/
+verifier:
+  type: pytest
+  entry: verifier/run-tests.sh
+  test_dir: verifier/tests
+  pass: exit-zero
+solution: solution/solution.yaml
+upstream:
+  parser_name: pytest
+  max_agent_timeout_sec: 900.0
+  max_test_timeout_sec: 180.0

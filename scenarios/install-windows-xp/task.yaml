@@ -1,0 +1,28 @@
+id: terminal-bench/install-windows-xp
+source: terminal-bench
+task_type: install
+category: system-administration
+domain:
+- virtualization
+- qemu
+- windows-xp
+- vnc
+- sys-admin
+difficulty: hard
+instruction: instruction.md
+environment:
+  tier: 1
+  type: compose
+  compose: environment/docker-compose.yaml
+  service: client
+  build_context: environment/
+verifier:
+  type: pytest
+  entry: verifier/run-tests.sh
+  test_dir: verifier/tests
+  pass: exit-zero
+solution: solution/solution.sh
+upstream:
+  parser_name: pytest
+  max_agent_timeout_sec: 7200.0
+  max_test_timeout_sec: 300.0

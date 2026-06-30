@@ -9,3 +9,11 @@ __pycache__/
 # venv
 .venv/
 venv/
+
+benchmark
+
+room
+
+# secrets — real env (keys); .env.example IS tracked
+.env
+.env.local
