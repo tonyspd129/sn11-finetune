@@ -6,34 +6,36 @@
 In-container layout:  /app = the TASK (agent + verifier act here) · /workspace = scaffold's home
 (the scaffold package + runner + instruction.md + the exported session.json).
 
-Everything else is configured EXTERNALLY (validator / DB / infra), NOT here:
-  • model serving + endpoint   → LLM_* env (injected by the caller)
-  • network policy             → --network (pass-through; default = docker default)
-  • image prep                 → the task image is expected to already provide python3 + openai
-                                 (for the agent) and the verifier's deps. Baking those is a
-                                 build-time/infra step, not this runner's job.
+Configured EXTERNALLY (validator / DB / infra), NOT here:
+  • model serving + endpoint   → LLM_* env (auto-loaded from .env)
+  • network policy             → docker default (set at the infra level, not here)
+  • image prep                 → this runner ALWAYS preps (installs python3 + openai for the
+                                 agent), since the task images are unprepared; in production
+                                 that prep is baked into the image at build time instead.
 
-    python sandbox.py <task_dir>            # run the scaffold agent
-    python sandbox.py <task_dir> --gold     # self-test: run the task's gold solution
+    python sandbox.py        # no args: run EVERY task in scenarios/, one by one
 
-LLM_* and the run knobs are auto-loaded from `.env` next to this script, so there's no
-need to `source .env` first. An already-set shell var (or `FOO=x python sandbox.py …`)
-still wins over the file.
+It runs the scaffold agent against every task dir under scenarios/ and writes each run to
+output/<timestamp>/<task>/ (result.json incl. the session + work/ = the /app end-state).
+LLM_* and the run knobs — including MAX_TURNS — are auto-loaded from `.env` next to this
+script (no `source .env` needed); an already-set shell var still wins over the file.
 """
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import re
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent           # fine-tune/ — this script lives here
 SCAFFOLD = HERE / "scaffold"
 ENV_FILE = HERE / ".env"
+SCENARIOS = HERE / "scenarios"                    # the eval pool: every task dir under here is run
+OUTPUT = HERE / "output"                          # results land in output/<timestamp>/<task>/
 
 # Agent entrypoint copied into the container: run scaffold against the configured model (LLM_* env).
 _RUNNER = '''import os, sys
@@ -120,7 +122,7 @@ def run_task(task_dir, mode="agent", network=None, max_turns=None, work_dir=None
                       "MAX_TURNS", "MAX_TOKENS_BUDGET", "WALL_CLOCK_S"):
                 if os.environ.get(k):
                     env[k] = os.environ[k]
-            if max_turns is not None:                 # --max-turns CLI overrides any env MAX_TURNS
+            if max_turns is not None:                 # explicit override; main() omits it so .env MAX_TURNS wins
                 env["MAX_TURNS"] = str(max_turns)
             rc, out = _exec(cid, "python3 /workspace/runner.py", workdir="/workspace", env=env)
             agent = f"agent rc={rc}: {out[-400:]}"
@@ -190,36 +192,43 @@ def _load_dotenv(path=ENV_FILE):
             os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
 
 
+def _discover_scenarios():
+    """Every task dir directly under scenarios/, sorted by name (non-dirs like _index.json skipped)."""
+    if not SCENARIOS.is_dir():
+        return []
+    return sorted((d for d in SCENARIOS.iterdir() if d.is_dir()), key=lambda p: p.name)
+
+
 def main():
-    _load_dotenv()                                   # auto-load .env (shell env still wins)
-    ap = argparse.ArgumentParser(description="SN11 sandbox — run one task, export the result")
-    ap.add_argument("task", help="task dir")
-    ap.add_argument("--gold", action="store_true", help="self-test with the task's gold solution")
-    ap.add_argument("--network", default=None, help="docker network (policy is external; pass-through)")
-    ap.add_argument("--max-turns", type=int, default=None,
-                    help="agent turn budget; overrides MAX_TURNS env (harness default 40)")
-    ap.add_argument("--prep", action="store_true",
-                    help="ensure python3+openai in the container (for UNPREPARED images; testing only)")
-    ap.add_argument("--out", default=None, help="write the result JSON (incl. session) to this path")
-    ap.add_argument("--save", default=None,
-                    help="dir to bundle the run: result.json (incl. session) + work/ (the /app end-state)")
-    a = ap.parse_args()
-    work_dir = str(Path(a.save) / "work") if a.save else None
-    r = run_task(a.task, mode="gold" if a.gold else "agent", network=a.network,
-                 max_turns=a.max_turns, work_dir=work_dir, prep=a.prep)
-    if a.save:
-        Path(a.save).mkdir(parents=True, exist_ok=True)
-        (Path(a.save) / "result.json").write_text(json.dumps(r, indent=2))
-    if a.out:
-        Path(a.out).write_text(json.dumps(r, indent=2))          # full result, incl. the session
-    # stdout: summarize the session instead of dumping the whole conversation
-    show = dict(r)
-    if isinstance(r.get("session"), dict):
-        s = r["session"]
-        show["session"] = {"turns": s.get("turns"), "stop_reason": s.get("stop_reason"),
-                           "messages": len(s.get("messages", [])), "tool_calls": len(s.get("tool_log", []))}
-    print(json.dumps(show, indent=2))
-    sys.exit(0 if r.get("passed") else 1)
+    _load_dotenv()                                   # auto-load .env (shell env, incl. MAX_TURNS, still wins)
+    tasks = _discover_scenarios()
+    if not tasks:
+        print(f"no scenarios found under {SCENARIOS}", file=sys.stderr)
+        sys.exit(1)
+    out_root = OUTPUT / time.strftime("%Y%m%d-%H%M%S")
+    print(f"running {len(tasks)} scenarios → {out_root}", flush=True)
+    summary = []
+    for i, task in enumerate(tasks, 1):
+        print(f"[{i}/{len(tasks)}] {task.name} ...", flush=True)
+        out_dir = out_root / task.name
+        # agent mode, always prep, MAX_TURNS from env; bundle result.json + work/ under the task dir
+        r = run_task(str(task), mode="agent", prep=True, work_dir=str(out_dir / "work"))
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "result.json").write_text(json.dumps(r, indent=2))     # full result, incl. session
+        s = r.get("session") if isinstance(r.get("session"), dict) else {}
+        row = {"task": r.get("task"), "passed": r.get("passed"), "score": r.get("score"),
+               "turns": s.get("turns"), "stop_reason": s.get("stop_reason"), "error": r.get("error")}
+        summary.append(row)
+        print(f"      score={row['score']} passed={row['passed']} turns={row['turns']} "
+              f"stop={row['stop_reason']}" + (f" ERROR={row['error']}" if row["error"] else ""),
+              flush=True)
+    out_root.mkdir(parents=True, exist_ok=True)
+    (out_root / "summary.json").write_text(json.dumps(summary, indent=2))
+    n_pass = sum(1 for r in summary if r["passed"])
+    scored = [r["score"] for r in summary if isinstance(r["score"], (int, float))]
+    mean = sum(scored) / len(scored) if scored else 0.0
+    print(f"\n=== {n_pass}/{len(summary)} passed | mean score {mean:.3f} | {out_root} ===")
+    sys.exit(0 if n_pass == len(summary) else 1)
 
 
 if __name__ == "__main__":

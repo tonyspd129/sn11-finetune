@@ -14,6 +14,9 @@ benchmark
 
 room
 
+# sandbox run artifacts: output/<timestamp>/<task>/{result.json, work/}
+output/
+
 # secrets — real env (keys); .env.example IS tracked
 .env
 .env.local
