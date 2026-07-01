@@ -12,7 +12,7 @@ def run(args, ctx):
     path = resolve_path(ctx, args.get("path", ".") or ".")
     maxr = int(args.get("max_results", 50) or 50)
     q, pq = shlex.quote(pattern), shlex.quote(path)
-    # prefer ripgrep, fall back to grep — decided INSIDE the shell's target (the container)
+    # rg-vs-grep availability is decided INSIDE the shell's target (the container), not here
     cmd = (f"if command -v rg >/dev/null 2>&1; then rg -n --no-heading -S -- {q} {pq}; "
            f"else grep -rnI -- {q} {pq}; fi 2>/dev/null")
     out, _code, _to = ctx.shell.run(cmd, timeout=60)

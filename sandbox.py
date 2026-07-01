@@ -15,8 +15,11 @@ agent reaches the model from the host regardless of the task's own (possibly bro
 Each run lands in output/<timestamp>/<task>/ (result.json incl. the session + work/ = the
 /app end-state). LLM_* and the run knobs (incl. MAX_TURNS) auto-load from `.env` next to this
 script (no `source .env`); an already-set shell var still wins. Optional env:
+  • SANDBOX_PARALLEL — max tasks to run concurrently (default 1 = sequential)
   • SANDBOX_NETWORK — docker network for the task container (default = docker default)
   • BUILD_TIMEOUT   — per-image build timeout in seconds (default 1800)
+  • VERIFY_TIMEOUT  — verifier timeout in seconds (default 900); on timeout the task scores 0
+                      but the agent's session is still exported
 
 Requires on the HOST: docker + python with `openai` installed (the agent runs here now).
 """
@@ -30,9 +33,10 @@ import subprocess
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent           # fine-tune/ — this script lives here
+HERE = Path(__file__).resolve().parent
 ENV_FILE = HERE / ".env"
 SCENARIOS = HERE / "scenarios"                    # the eval pool: every task dir under here is run
 OUTPUT = HERE / "output"                          # results land in output/<timestamp>/<task>/
@@ -56,7 +60,8 @@ def _exec(cid, sh, workdir=None, env=None, timeout=900):
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 
-def run_task(task_dir, mode="agent", network=None, max_turns=None, work_dir=None, build_timeout=1800):
+def run_task(task_dir, mode="agent", network=None, max_turns=None, work_dir=None,
+             build_timeout=1800, verify_timeout=900):
     task = Path(task_dir).resolve()
     # unified season1 layout: instruction.md + environment/ + solution/ + verifier/
     build_ctx = task / "environment" if (task / "environment" / "Dockerfile").exists() else task
@@ -117,24 +122,32 @@ def run_task(task_dir, mode="agent", network=None, max_turns=None, work_dir=None
             _d("cp", f"{cid}:{taskdir}/.", work_dir)
 
         # inject + run the verifier (in the SAME container — checks the task end state).
+        # A verifier hang/timeout/error must NOT discard the already-captured session, so it's
+        # caught here and turned into a score-0 result instead of raising past the return.
         _d("cp", str(task / "verifier"), f"{cid}:/verifier")
-        if vstyle == "pytest":
-            # Inject pytest (+ common deps) as a PYTHONPATH lib and run it with the CONTAINER's own
-            # python — offline, no uv/pip bootstrap, and the task's installed packages stay visible
-            # (so env tasks like broken-python test the system python being fixed). Replaces the
-            # network-dependent run-tests.sh bootstrap.
-            _d("cp", str(_ensure_verifier_lib()), f"{cid}:/opt/vlib")
-            cmd = "PY=$(command -v python3 || command -v python); $PY -m pytest /verifier/tests -rA"
-            rc, vout = _exec(cid, cmd, workdir=taskdir,
-                             env={"TEST_DIR": "/verifier/tests", "PYTHONPATH": "/opt/vlib"})
-            score = _pytest_fraction(vout)
-        else:
-            rc, vout = _exec(cid, f"bash {ventry} {taskdir}", workdir=taskdir, env={"TF_WORKDIR": taskdir})
-            score = None
-        if score is None:
-            score = 1.0 if rc == 0 else 0.0
+        try:
+            if vstyle == "pytest":
+                # Inject pytest (+ common deps) as a PYTHONPATH lib and run it with the CONTAINER's own
+                # python — offline, no uv/pip bootstrap, and the task's installed packages stay visible
+                # (so env tasks like broken-python test the system python being fixed). Replaces the
+                # network-dependent run-tests.sh bootstrap.
+                _d("cp", str(_ensure_verifier_lib()), f"{cid}:/opt/vlib")
+                cmd = "PY=$(command -v python3 || command -v python); $PY -m pytest /verifier/tests -rA"
+                rc, vout = _exec(cid, cmd, workdir=taskdir, timeout=verify_timeout,
+                                 env={"TEST_DIR": "/verifier/tests", "PYTHONPATH": "/opt/vlib"})
+                score = _pytest_fraction(vout)
+            else:
+                rc, vout = _exec(cid, f"bash {ventry} {taskdir}", workdir=taskdir,
+                                 timeout=verify_timeout, env={"TF_WORKDIR": taskdir})
+                score = None
+            if score is None:
+                score = 1.0 if rc == 0 else 0.0
+        except subprocess.TimeoutExpired:
+            rc, vout, score = -1, f"verifier timed out after {verify_timeout}s", 0.0
+        except Exception as e:
+            rc, vout, score = -1, f"verifier error: {type(e).__name__}: {e}", 0.0
 
-        # export the result (scaffold's conversation under "session"; the /app end-state at "work_dir")
+        # export the result (session is preserved even when the verifier above failed)
         return {"task": task.name, "pool": task.parent.name, "mode": mode,
                 "passed": rc == 0, "score": score, "agent": agent,
                 "session": session, "work_dir": work_dir, "verify": vout[-600:]}
@@ -200,28 +213,42 @@ def main():
         sys.exit(1)
     network = os.environ.get("SANDBOX_NETWORK") or None
     build_timeout = int(os.environ.get("BUILD_TIMEOUT") or "1800")
+    verify_timeout = int(os.environ.get("VERIFY_TIMEOUT") or "900")
+    parallel = max(1, int(os.environ.get("SANDBOX_PARALLEL") or "1"))
     out_root = OUTPUT / time.strftime("%Y%m%d-%H%M%S")
-    print(f"running {len(tasks)} scenarios → {out_root}"
-          f"  (net={network or 'default'}, build_timeout={build_timeout}s)", flush=True)
-    summary = []
-    for i, task in enumerate(tasks, 1):
-        print(f"[{i}/{len(tasks)}] {task.name} ...", flush=True)
+    print(f"running {len(tasks)} scenarios → {out_root}  (parallel={parallel}, "
+          f"net={network or 'default'}, build_timeout={build_timeout}s, verify_timeout={verify_timeout}s)",
+          flush=True)
+    try:                                             # build the injected pytest lib ONCE, before the pool
+        _ensure_verifier_lib()                       # (avoids a build race across worker threads)
+    except Exception as e:
+        print(f"warning: verifier lib unavailable ({e}); pytest tasks will score 0", file=sys.stderr)
+
+    def _one(task):                                  # runs in a worker thread: own container, own out_dir
         out_dir = out_root / task.name
         try:                                         # one task must never abort the batch
-            r = run_task(str(task), mode="agent", network=network,
-                         work_dir=str(out_dir / "work"), build_timeout=build_timeout)
+            r = run_task(str(task), mode="agent", network=network, work_dir=str(out_dir / "work"),
+                         build_timeout=build_timeout, verify_timeout=verify_timeout)
         except Exception as e:
             r = {"task": task.name, "pool": task.parent.name, "passed": False, "score": 0.0,
                  "error": f"{type(e).__name__}: {e}"}
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "result.json").write_text(json.dumps(r, indent=2))     # full result, incl. session
-        s = r.get("session") if isinstance(r.get("session"), dict) else {}
-        row = {"task": r.get("task"), "passed": r.get("passed"), "score": r.get("score"),
-               "turns": s.get("turns"), "stop_reason": s.get("stop_reason"), "error": r.get("error")}
-        summary.append(row)
-        print(f"      score={row['score']} passed={row['passed']} turns={row['turns']} "
-              f"stop={row['stop_reason']}" + (f" ERROR={row['error']}" if row["error"] else ""),
-              flush=True)
+        return r
+
+    summary, done = [], 0
+    with ThreadPoolExecutor(max_workers=parallel) as ex:
+        futs = [ex.submit(_one, t) for t in tasks]   # submit all; pool runs `parallel` at a time
+        for fut in as_completed(futs):
+            r = fut.result()
+            done += 1
+            s = r.get("session") if isinstance(r.get("session"), dict) else {}
+            row = {"task": r.get("task"), "passed": r.get("passed"), "score": r.get("score"),
+                   "turns": s.get("turns"), "stop_reason": s.get("stop_reason"), "error": r.get("error")}
+            summary.append(row)
+            print(f"[{done}/{len(tasks)}] {row['task']} score={row['score']} passed={row['passed']} "
+                  f"turns={row['turns']} stop={row['stop_reason']}"
+                  + (f" ERROR={row['error']}" if row["error"] else ""), flush=True)
     out_root.mkdir(parents=True, exist_ok=True)
     (out_root / "summary.json").write_text(json.dumps(summary, indent=2))
     n_pass = sum(1 for r in summary if r["passed"])

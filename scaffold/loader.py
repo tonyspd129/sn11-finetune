@@ -73,7 +73,7 @@ def discover_tools(*dirs: str) -> list[Tool]:
             if not callable(run):
                 raise ValueError(f"tool.py missing run(args, ctx): {path}")
             tool = FunctionTool(metadata, run)
-            found[tool.name] = tool                                             # override by name
+            found[tool.name] = tool
     return list(found.values())
 
 

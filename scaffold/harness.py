@@ -58,8 +58,8 @@ class Harness:
         self.tools = ToolManager(discover_tools(str(_PKG / "tools")))   # broken plugin RAISES
         self.skills = SkillManager(discover_skills(str(_PKG / "skills")))
         self.system_prompt = load_system_prompt(str(_PKG / "skills")) or "You are an autonomous terminal agent."
-        self.compaction = make_compaction()                            # imported from .compaction
-        self.prompt_builder = build_system_prompt                       # imported from .prompt
+        self.compaction = make_compaction()
+        self.prompt_builder = build_system_prompt
         self.workdir = workdir
         # budgets: explicit arg > env (validator-injected) > hardcoded default
         self.max_turns = max_turns if max_turns is not None else (_env_int("MAX_TURNS") or 40)
@@ -82,7 +82,7 @@ class Harness:
         return out
 
     def run(self, task: str) -> Session:
-        shell = self._shell or Shell(cwd=self.workdir)   # injected DockerShell, else local
+        shell = self._shell or Shell(cwd=self.workdir)
         ctx = RunContext(shell=shell, workdir=self.workdir, config=self.config,
                          skill_lookup=self.skills.get_body)
         system = self._build_system(task)           # prompt builder owns prose+skills assembly

@@ -34,7 +34,6 @@ class SkillManager:
         s = self._by_name.get(name)
         return s.content if s else None
 
-    # ---- prompt assembly ----------------------------------------------- #
     def always_on_skills(self) -> list[Skill]:
         return [s for s in self.skills if s.always_on]
 

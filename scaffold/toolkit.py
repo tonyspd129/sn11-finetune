@@ -14,9 +14,6 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 
-# --------------------------------------------------------------------------- #
-# Result + execution context
-# --------------------------------------------------------------------------- #
 @dataclass
 class ToolResult:
     output: str
@@ -95,7 +92,7 @@ class DockerShell(Shell):
     def __init__(self, container: str, cwd: str = "/app"):
         self.container = container
         self.cwd = cwd
-        self._docker("exec", container, "mkdir", "-p", cwd)   # ensure the workdir exists
+        self._docker("exec", container, "mkdir", "-p", cwd)
 
     def _docker(self, *args: str, timeout: int = 120) -> subprocess.CompletedProcess:
         return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
@@ -137,9 +134,6 @@ class RunContext:
     skill_lookup: Optional[Callable[[str], Optional[str]]] = None  # name -> skill body (set by Harness)
 
 
-# --------------------------------------------------------------------------- #
-# Tool contract, function-adapter, registry
-# --------------------------------------------------------------------------- #
 class Tool(ABC):
     name: str = ""
     description: str = ""
